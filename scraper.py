@@ -178,6 +178,7 @@ def scrape(search_term_data, additional_data, file_name, process_index):
     #Initialisation of driver
     driver = check_proxy(process_index)
 
+    #Better error handling here?
     if search_func(search_term_data, driver) == 0: #If search failed
         skipped(search_term_data, driver)
         return
@@ -234,24 +235,29 @@ def get_addresses(file_name, process_index):
 def manual_proxy_check(num):
     options = webdriver.ChromeOptions()
 
-    #Residential Proxies
-    PROXY = 'au.smartproxy.com:30000'
-    options.add_argument('--proxy-server=%s' % PROXY)
-    options.add_argument('--disable-extensions')
+    #IP Authenticated Proxies
+    #PROXY = 'au.smartproxy.com:30000' #Residential
+    #PROXY = '23.250.83.82:80' #Datacenter
+    #options.add_argument('--proxy-server=%s' % PROXY)
+    #options.add_argument('--disable-extensions')
 
-    #Datacenter Proxies
-    #options.add_extension("proxy.zip")
+    #User/PW Authenticated Proxies
+    options.add_extension("proxy.zip") #Residential
+    
 
     options.add_argument("user-data-dir=C:/Selenium_profile/User Data " + str(num))
     options.add_argument("profile-directory=Profile 1")
     options.add_argument('start-maximized')
     driver = webdriver.Chrome(executable_path='chromedriver.exe', options=options)
-    driver.get('http://lumtest.com/myip.json')
+    #url = 'https://www.realestateview.com.au/'
+    #url = 'https://www.domain.com.au/'
     #url = 'https://www.onthehouse.com.au'
-    #driver.get(url)
+    url = 'http://lumtest.com/myip.json'
+    driver.get(url)
     time.sleep(5)
     return
     
+#Could possibly use getopt to improve
 def main(argv):
     if argv[0] == '-p' and len(argv) == 2:
         #Check proxy
