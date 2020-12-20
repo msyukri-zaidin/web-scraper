@@ -8,8 +8,11 @@ import time
 from datetime import datetime
 import re
 import os
+import sys
+import csv
 from pathlib import Path
 #from django.conf import settings #For Django app
+from joblib import Parallel, delayed, parallel_backend
 from dotenv import load_dotenv
 env_path = Path('.') / '.env'
 load_dotenv(dotenv_path=env_path)
@@ -31,6 +34,12 @@ class House:
         #self.nearest_pri_dist = 'NA'
         #self.nearest_sec = 'NA'
         #self.nearest_sec_dist = 'NA'
+    
+    def toList(self):
+        attribute_list = [self.num_bedroom, self.num_bathroom, self.num_garage, 
+                        self.floor_area, self.land_area, self.yr_built,
+                        self.last_sold_date, self.last_sold_price, self.land_price]
+        return attribute_list
 
     def toDict(self):
         attribute_dict = {
@@ -59,10 +68,10 @@ class House:
         print("Last Sold Price: ", self.last_sold_price)
         print("Land Price: ", self.land_price)
 
-def main():
+def main(argv):
     if argv[0] == '-p' and len(argv) == 2:
         #Check proxy
-        Parallel(n_jobs=int(argv[1]), prefer="threads")(delayed(manual_proxy_check)(i) for i in range(1, int(argv[1]) + 1))
+        Parallel(n_jobs=int(argv[1]))(delayed(manual_proxy_check)(i) for i in range(1, int(argv[1]) + 1))
         return
     if len(argv) < 2:
         print("ERROR: No arguments\nUsage: python scraper.py [file name] [number of processor(s)]")
@@ -70,6 +79,18 @@ def main():
     elif len(argv) > 2:
         print("ERROR: Too many arguments\nUsage: python scraper.py [file name] [number of processor(s)]")
         return
+    
+    file_name = argv[0].replace('.csv', '')
+    num_cores = int(argv[1])
+
+    CWD = os.getcwd()
+    files = []
+    CWD += '/address_data/'
+    for i in range(1, num_cores + 1):
+        files.append(CWD + file_name + '_part_' + str(i) + '.csv')
+
+    Parallel(n_jobs=num_cores)(delayed(get_addresses)(file_name, process_index) for process_index, file_name in enumerate(files, 1))
+
 
 def manual_proxy_check(num):
     options = webdriver.ChromeOptions()
@@ -79,12 +100,18 @@ def manual_proxy_check(num):
     options.add_argument('--proxy-server=%s' % PROXY)
     options.add_argument('--disable-extensions')
 
+    prefs={"profile.managed_default_content_settings.images": 2}
+    options.add_experimental_option('prefs', prefs)
+    prefs = {'disk-cache-size': 4096}
+    options.add_experimental_option('prefs', prefs)
+    caps = DesiredCapabilities().CHROME.copy()
+    caps["pageLoadStrategy"] = "eager"
     #User/PW Authenticated Proxies
     #options.add_extension("proxy.zip") #Residential
     options.add_argument("user-data-dir=C:/Selenium_profile/User_Data_" + str(num))
-    options.add_argument("profile-directory=Profile 1")
+    options.add_argument("profile-directory=Profile_1")
     options.add_argument('start-maximized')
-    driver = webdriver.Chrome(executable_path='chromedriver.exe', options=options)
+    driver = webdriver.Chrome(desired_capabilities = caps, options=options)
     #url = 'https://www.realestateview.com.au/'
     #url = 'https://www.domain.com.au/'
     #url = 'https://www.onthehouse.com.au'
@@ -93,9 +120,25 @@ def manual_proxy_check(num):
     time.sleep(5)
     return
 
-def scrape(search_term_data):
+def get_addresses(file_name, process_index):
+    print("Looking into ", file_name)
+    with open(file_name, newline='') as csvfile:
+        reader = csv.reader(csvfile, delimiter=',')
+        for line_number, line in enumerate(reader):
+            if process_index == 1:
+                print("On line: ", line_number)
+            if line_number == 0: #Ignore header
+                continue
+            else:
+                search_term_data = line[:-2]
+                additional_data = line[-2:]
+                scrape(search_term_data, additional_data, file_name, process_index)
+                #scrape()
+                #write to another file
+
+def scrape(search_term_data, additional_data, file_name, process_index):
     #Configure timer
-    start_time = time.time()
+    
 
     #Configure options
     options = webdriver.ChromeOptions()
@@ -114,51 +157,56 @@ def scrape(search_term_data):
     options.add_experimental_option('prefs', prefs)
     #options.add_experimental_option("prefs", {"profile.default_content_setting_values.cookies": 2}) #Disables cookies
     #options.add_argument("user-data-dir=" + settings.USER_DATA_DIR) #For Django webapp
-    options.add_argument("user-data-dir=" + os.getenv("USER_DATA_DIR"))
+    options.add_argument("user-data-dir=C:/Selenium_profile/User_data_" + str(process_index))
+    print("USING PROFILE ","user-data-dir=C:/Selenium_profile/User_data_" + str(process_index))
+    #options.add_argument("user-data-dir=C:/Users/Mazza/Desktop/personal projects/personal-website/p_webapp/scraper/User_Data_1")
     options.add_argument("profile-directory=Profile_1")
 
     url = 'https://www.propertyvalue.com.au/'
-    caps = DesiredCapabilities().CHROME
+    caps = DesiredCapabilities().CHROME.copy()
     caps["pageLoadStrategy"] = "eager"
-    driver = webdriver.Chrome(desired_capabilities=caps, options=options)
+    driver = webdriver.Chrome(executable_path='chromedriver.exe', desired_capabilities=caps, options=options)
 
     try:
         driver.get(url)
-    except Exception as exc:
-        print(exc)
-        return {'status':False}
+    except:
+        skipped(search_term_data, driver)
+        driver.quit()
+        return
 
     #Input
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, 'propertysearch'))
         )
-    except Exception as exc:
-        print(exc)
-        driver.close()
-        return {'status':False}
+    except:
+        skipped(search_term_data, driver)
+        driver.quit()
+        return
+    print(' '.join(search_term_data))
     inputElement = driver.find_element_by_id("propertysearch")
-    inputElement.send_keys(search_term_data)
+    inputElement.send_keys(' '.join(search_term_data))
+    time.sleep(5)
     inputElement.send_keys(Keys.ENTER)
 
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, '//*[@id="paddress"]/span[1]'))
         )
-    except Exception as exc:
-        print(exc)
-        driver.close()
-        return {'status':False}
+    except:
+        skipped(search_term_data, driver)
+        driver.quit()
+        return
 
     h1 = House()
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, '//*[@id="property-insights"]/div[3]/div[1]/div[1]/div'))
         )
-    except Exception as exc:
-        print(exc)
-        driver.close()
-        return {'status':False}
+    except:
+        skipped(search_term_data, driver)
+        driver.quit()
+        return
     #print(driver.find_element_by_xpath('//*[@id="property-insights"]/div[3]/div[1]/div[1]/div').text)
     property_details = driver.find_element_by_xpath('//*[@id="property-insights"]/div[3]/div[1]/div[1]/div').text.split('\n')
     for item in property_details:
@@ -169,9 +217,9 @@ def scrape(search_term_data):
         elif "Car Spaces" in item:
             h1.num_garage = re.sub("\D", "", item)
         elif "Land Size" in item:
-            h1.land_area = re.sub("\D", "", item.strip('m2'))
+            h1.land_area = re.sub("[a-zA-Z ]", "", item.strip('m2'))
         elif "Floor Area" in item:
-            h1.floor_area = re.sub("\D", "", item.strip('m2'))
+            h1.floor_area = re.sub("[a-zA-Z ]", "", item.strip('m2'))
         elif "Year Built" in item:
             h1.yr_built = int(re.sub("\D", "", item))
 
@@ -179,10 +227,9 @@ def scrape(search_term_data):
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, '//*[@id="property-insights"]/div[2]/div[1]/div[2]/div[1]/div[1]/p[1]'))
         )
-    except Exception as exc:
-        print(exc)
-        driver.close()
-        return h1.toDict()
+    except:
+        write_data(h1, search_term_data, additional_data, file_name)
+        return
     sale_details = driver.find_element_by_xpath('//*[@id="property-insights"]/div[2]/div[1]/div[2]/div[1]/div[1]/p[1]').text.strip("Last sold for").split(" on ")
     sale_date_obj = datetime.strptime(sale_details[1], '%d/%m/%Y')
     if h1.yr_built >= sale_date_obj.year : #If built after last sold, then the last sold price is the price of land
@@ -191,9 +238,25 @@ def scrape(search_term_data):
         h1.last_sold_price = sale_details[0]
     h1.last_sold_date = sale_details[1]
     h1.printAll()
-    driver.close()
-    print("--- %s seconds ---" % (time.time() - start_time))
+    driver.quit()
+    write_data(h1, search_term_data, additional_data, file_name)
+    
     return h1.toDict()
 
+def skipped(search_term_data, driver):
+    with open('address_data/skipped_searches.txt', 'a') as f:
+        f.write(' '.join(e.strip('\r') for e in search_term_data) + '\r\n')
+    return
+
+def write_data(h1, search_term_data, additional_data, file_name):
+    file_name = re.sub('[.]', '_result.', file_name)
+    with open(file_name, 'a+', newline='') as csv_write_file:
+        writer = csv.writer(csv_write_file, delimiter=',')
+        writer.writerow(search_term_data + additional_data + h1.toList())
+    return
+
+
 if __name__ == '__main__':
+    start_time = time.time()
     main(sys.argv[1:])
+    print("--- %s seconds ---" % (time.time() - start_time))
