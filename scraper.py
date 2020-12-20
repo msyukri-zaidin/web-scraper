@@ -1,26 +1,28 @@
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.proxy import Proxy, ProxyType
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 import time
-import csv
-import os
 from datetime import datetime
 import re
-import sys
+import os
+from pathlib import Path
+#from django.conf import settings #For Django app
+from dotenv import load_dotenv
+env_path = Path('.') / '.env'
+load_dotenv(dotenv_path=env_path)
 
 class House:
     def __init__(self):
         self.num_bedroom = 'NA'
         self.num_bathroom = 'NA'
         self.num_garage = 'NA'
-        #self.floor_area = 'NA'
+        self.floor_area = 'NA'
         self.land_area = 'NA'
         #self.building_type = 'NA'
-        #self.yr_built = 'NA'
+        self.yr_built = 'NA'
         #self.primary_use = 'NA'
         self.last_sold_date = 'NA'
         self.last_sold_price = 'NA'
@@ -30,133 +32,134 @@ class House:
         #self.nearest_sec = 'NA'
         #self.nearest_sec_dist = 'NA'
 
-    def toList(self):
-        attribute_list = [self.num_bedroom, self.num_bathroom, self.num_garage, self.land_area,
-                        self.last_sold_date, self.last_sold_price, self.land_price]
-        return attribute_list
+    def toDict(self):
+        attribute_dict = {
+            'bedrooms': self.num_bedroom,
+            'bathrooms': self.num_bathroom,
+            'garage': self.num_garage,
+            'land_area': self.land_area,
+            'floor_area': self.floor_area,
+            'year_built': self.yr_built,
+            'last_sold_date': self.last_sold_date,
+            'last_sold_price': self.last_sold_price,
+            'land_price': self.land_price,
+            'status':True
+
+        }
+        return attribute_dict
 
     def printAll(self):
         print("Bedrooms: ", self.num_bedroom)
         print("Bathrooms: ", self.num_bathroom)
         print("Garages: ", self.num_garage)
         print("Land Area: ", self.land_area)
+        print("Floor Area: ", self.floor_area)
+        print("Year Built: ", self.yr_built)
         print("Last Sold Date: ", self.last_sold_date)
         print("Last Sold Price: ", self.last_sold_price)
         print("Land Price: ", self.land_price)
-    
-def check_proxy():
-    options = webdriver.ChromeOptions()
 
-    #IP Authenticated Proxies
+def scrape(search_term_data):
+    #Configure timer
+    start_time = time.time()
+
+    #Configure options
+    options = webdriver.ChromeOptions()
     PROXY = 'au.smartproxy.com:30000' #Residential
-    #PROXY = '23.250.83.82:80' #Datacenter
     options.add_argument('--proxy-server=%s' % PROXY)
     options.add_argument('--disable-extensions')
 
     #User/PW Authenticated Proxies
     #options.add_extension("proxy.zip") #Residential
-
+    #options.add_extension(os.path.abspath("proxy_pp.zip"))
+    
     options.add_argument('start-maximized')
     prefs={"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option('prefs', prefs)
     prefs = {'disk-cache-size': 4096}
     options.add_experimental_option('prefs', prefs)
-    #options.add_argument("user-data-dir=C:/Selenium_profile/User Data " + str(process_index))
-    #options.add_argument("profile-directory=Profile 1")
+    #options.add_experimental_option("prefs", {"profile.default_content_setting_values.cookies": 2}) #Disables cookies
+    #options.add_argument("user-data-dir=" + settings.USER_DATA_DIR) #For Django webapp
+    options.add_argument("user-data-dir=" + os.getenv("USER_DATA_DIR"))
+    options.add_argument("profile-directory=Profile_1")
 
-    #ua = UserAgent()
-    #userAgent = ua.random
-    #options.add_argument(f'user-agent={userAgent}')
+    url = 'https://www.propertyvalue.com.au/'
+    caps = DesiredCapabilities().CHROME
+    caps["pageLoadStrategy"] = "eager"
+    driver = webdriver.Chrome(desired_capabilities=caps, options=options)
 
-    driver = webdriver.Chrome(executable_path='chromedriver.exe', options=options)
-    return driver
-
-def search_func(search_term_data, driver):
-    #url = 'https://www.onthehouse.com.au/real-estate/wa/'
-    url = 'https://www.realestateview.com.au/property-360/property/'
-    #url = 'https://www.domain.com.au/'
-    search_term_data = [s.lower() for s in search_term_data]
-    search_term_data[3] = search_term_data[3].replace(' ', '-') #If suburb is 2 words or more long, put a dash inbetween
-    search_term_data[1] = search_term_data[1].replace(' ', '-') #If street is 2 words or more long, put a dash inbetween
-    url += search_term_data[0] + '-' + search_term_data[1] + '-' + search_term_data[2] + '-' + search_term_data[3] + '-' + search_term_data[4] + '-' + search_term_data[5] 
     try:
         driver.get(url)
-    except: #URL does not exist
-        return 0
-        
-    #Wait for new page to load then click the card link that appears
+    except Exception as exc:
+        print(exc)
+        return {'status':False}
+
+    #Input
     try:
-        WebDriverWait(driver, 60).until(
-            EC.presence_of_element_located((By.CLASS_NAME, 'pe-bbc-size__item'))
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, 'propertysearch'))
         )
-    except:
-        return 0
-
-    return 1
-
-def hasNumbers(inputString):
-    return bool(re.search(r'\d', inputString))
-
-#Basic details present in all houses
-def get_basic_details(obj, driver):
-    obj.num_bedroom = driver.find_element_by_xpath('/html/body/div[1]/div[2]/div[2]/div[1]/div/div/div[2]/div/div[1]/span[1]/span').text
-    obj.num_bathroom = driver.find_element_by_xpath('/html/body/div[1]/div[2]/div[2]/div[1]/div/div/div[2]/div/div[1]/span[2]/span').text
-    obj.num_garage = driver.find_element_by_xpath('/html/body/div[1]/div[2]/div[2]/div[1]/div/div/div[2]/div/div[1]/span[3]/span').text
-    obj.land_area = driver.find_element_by_xpath('/html/body/div[1]/div[2]/div[2]/div[1]/div/div/div[2]/div/div[1]/span[4]').text
-#Details which may or may not be present
-def get_intermediate_details(obj, driver):
-    history_list = driver.find_elements_by_xpath("//div[contains(@class, '_table-row')]")
-    sale_history = []
-    for item in history_list:
-        if "Sold" in item.text:
-            s = item.text.split() #E.g May 2016 Sold $335,000 would be ['May', '2016', 'Sold', '$335,000']
-            sale_history.append(s)
-
-    if len(sale_history) == 1: #history_list[0] would be considered land price
-        if hasNumbers(sale_history[0][3]):
-            obj.land_price = sale_history[0][3]
-        obj.last_sold_date = sale_history[0][0] + ' ' + sale_history[0][1]
-    elif len(sale_history) >= 1:
-        if hasNumbers(sale_history[0][3]):
-            obj.last_sold_price = sale_history[0][3]
-        obj.last_sold_date = sale_history[0][0] + ' ' + sale_history[0][1]
-    else:
-        return
-
-#Opens a file for appending
-def write_data(h1, search_term_data, additional_data, file_name):
-    file_name = re.sub('[.]', '_result.', file_name)
-    with open(file_name, 'a+', newline='') as csv_write_file:
-        writer = csv.writer(csv_write_file, delimiter=',')
-        writer.writerow(search_term_data + additional_data + h1.toList())
-    return
-
-#Opens a file that prints a search that was skipped
-def skipped(search_term_data, driver):
-    with open('address_data/skipped_searches.txt', 'a') as f:
-        f.write(' '.join(e.strip('\r') for e in search_term_data) + '\r\n')
+    except Exception as exc:
+        print(exc)
         driver.close()
-
-def scrape(search_term_data):
-    #Initialisation of driver
-    driver = check_proxy()
-
-    #Better error handling here?
-    if search_func(search_term_data, driver) == 0: #If search failed
-        return None
-
-    h1 = House() #House object
-    try:
-        get_basic_details(h1, driver)
-    except:
-        return None
+        return {'status':False}
+    inputElement = driver.find_element_by_id("propertysearch")
+    inputElement.send_keys(search_term_data)
+    inputElement.send_keys(Keys.ENTER)
 
     try:
-        get_intermediate_details(h1, driver)
-    except:
-        pass
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//*[@id="paddress"]/span[1]'))
+        )
+    except Exception as exc:
+        print(exc)
+        driver.close()
+        return {'status':False}
 
+    h1 = House()
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//*[@id="property-insights"]/div[3]/div[1]/div[1]/div'))
+        )
+    except Exception as exc:
+        print(exc)
+        driver.close()
+        return {'status':False}
+    #print(driver.find_element_by_xpath('//*[@id="property-insights"]/div[3]/div[1]/div[1]/div').text)
+    property_details = driver.find_element_by_xpath('//*[@id="property-insights"]/div[3]/div[1]/div[1]/div').text.split('\n')
+    for item in property_details:
+        if "Bedrooms" in item:
+            h1.num_bedroom = re.sub("\D", "", item)
+        elif "Bathrooms" in item:
+            h1.num_bathroom = re.sub("\D", "", item)
+        elif "Car Spaces" in item:
+            h1.num_garage = re.sub("\D", "", item)
+        elif "Land Size" in item:
+            h1.land_area = re.sub("\D", "", item.strip('m2'))
+        elif "Floor Area" in item:
+            h1.floor_area = re.sub("\D", "", item.strip('m2'))
+        elif "Year Built" in item:
+            h1.yr_built = int(re.sub("\D", "", item))
+
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//*[@id="property-insights"]/div[2]/div[1]/div[2]/div[1]/div[1]/p[1]'))
+        )
+    except Exception as exc:
+        print(exc)
+        driver.close()
+        return h1.toDict()
+    sale_details = driver.find_element_by_xpath('//*[@id="property-insights"]/div[2]/div[1]/div[2]/div[1]/div[1]/p[1]').text.strip("Last sold for").split(" on ")
+    sale_date_obj = datetime.strptime(sale_details[1], '%d/%m/%Y')
+    if h1.yr_built >= sale_date_obj.year : #If built after last sold, then the last sold price is the price of land
+        h1.land_price = sale_details[0]
+    else:
+        h1.last_sold_price = sale_details[0]
+    h1.last_sold_date = sale_details[1]
     h1.printAll()
-    #write_data(h1, search_term_data, additional_data, file_name)
     driver.close()
-    return data
+    print("--- %s seconds ---" % (time.time() - start_time))
+    return h1.toDict()
+
+if __name__ == '__main__':
+    scrape('10 hutt way gosnells wa 6110')
