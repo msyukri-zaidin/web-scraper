@@ -59,6 +59,40 @@ class House:
         print("Last Sold Price: ", self.last_sold_price)
         print("Land Price: ", self.land_price)
 
+def main():
+    if argv[0] == '-p' and len(argv) == 2:
+        #Check proxy
+        Parallel(n_jobs=int(argv[1]), prefer="threads")(delayed(manual_proxy_check)(i) for i in range(1, int(argv[1]) + 1))
+        return
+    if len(argv) < 2:
+        print("ERROR: No arguments\nUsage: python scraper.py [file name] [number of processor(s)]")
+        return
+    elif len(argv) > 2:
+        print("ERROR: Too many arguments\nUsage: python scraper.py [file name] [number of processor(s)]")
+        return
+
+def manual_proxy_check(num):
+    options = webdriver.ChromeOptions()
+
+    #IP Authenticated Proxies
+    PROXY = 'au.smartproxy.com:30000' #Residential
+    options.add_argument('--proxy-server=%s' % PROXY)
+    options.add_argument('--disable-extensions')
+
+    #User/PW Authenticated Proxies
+    #options.add_extension("proxy.zip") #Residential
+    options.add_argument("user-data-dir=C:/Selenium_profile/User_Data_" + str(num))
+    options.add_argument("profile-directory=Profile 1")
+    options.add_argument('start-maximized')
+    driver = webdriver.Chrome(executable_path='chromedriver.exe', options=options)
+    #url = 'https://www.realestateview.com.au/'
+    #url = 'https://www.domain.com.au/'
+    #url = 'https://www.onthehouse.com.au'
+    url = 'http://lumtest.com/myip.json'
+    driver.get(url)
+    time.sleep(5)
+    return
+
 def scrape(search_term_data):
     #Configure timer
     start_time = time.time()
@@ -162,4 +196,4 @@ def scrape(search_term_data):
     return h1.toDict()
 
 if __name__ == '__main__':
-    scrape('10 hutt way gosnells wa 6110')
+    main(sys.argv[1:])
